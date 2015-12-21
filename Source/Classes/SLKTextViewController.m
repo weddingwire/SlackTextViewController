@@ -693,6 +693,7 @@ CGFloat const SLKAutoCompletionViewDefaultHeight = 140.0;
     if (self.shouldClearTextAtRightButtonPress) {
         // Clears the text and the undo manager
         [self.textView slk_clearText:YES];
+        self.rightButton.enabled = false;        
     }
     
     // Clears cache

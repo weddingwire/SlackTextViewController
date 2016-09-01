@@ -23,6 +23,7 @@
 @property (nonatomic, strong) NSArray *users;
 @property (nonatomic, strong) NSArray *channels;
 @property (nonatomic, strong) NSArray *emojis;
+@property (nonatomic, strong) NSArray *commands;
 
 @property (nonatomic, strong) NSArray *searchResult;
 
@@ -34,7 +35,7 @@
 
 @implementation MessageViewController
 
-- (id)init
+- (instancetype)init
 {
     self = [super initWithTableViewStyle:UITableViewStylePlain];
     if (self) {
@@ -43,7 +44,7 @@
     return self;
 }
 
-- (id)initWithCoder:(NSCoder *)aDecoder
+- (instancetype)initWithCoder:(NSCoder *)aDecoder
 {
     self = [super initWithCoder:aDecoder];
     if (self) {
@@ -111,7 +112,7 @@
     [self.tableView registerClass:[MessageTableViewCell class] forCellReuseIdentifier:MessengerCellIdentifier];
     
     [self.autoCompletionView registerClass:[MessageTableViewCell class] forCellReuseIdentifier:AutoCompletionCellIdentifier];
-    [self registerPrefixesForAutoCompletion:@[@"@", @"#", @":", @"+:"]];
+    [self registerPrefixesForAutoCompletion:@[@"@", @"#", @":", @"+:", @"/"]];
     
     [self.textView registerMarkdownFormattingSymbol:@"*" withTitle:@"Bold"];
     [self.textView registerMarkdownFormattingSymbol:@"_" withTitle:@"Italics"];
@@ -154,10 +155,16 @@
     self.users = @[@"Allen", @"Anna", @"Alicia", @"Arnold", @"Armando", @"Antonio", @"Brad", @"Catalaya", @"Christoph", @"Emerson", @"Eric", @"Everyone", @"Steve"];
     self.channels = @[@"General", @"Random", @"iOS", @"Bugs", @"Sports", @"Android", @"UI", @"SSB"];
     self.emojis = @[@"-1", @"m", @"man", @"machine", @"block-a", @"block-b", @"bowtie", @"boar", @"boat", @"book", @"bookmark", @"neckbeard", @"metal", @"fu", @"feelsgood"];
+    self.commands = @[@"msg", @"call", @"text", @"skype", @"kick", @"invite"];
 }
 
 - (void)configureActionItems
 {
+    UIBarButtonItem *arrowItem = [[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"icn_arrow_down"]
+                                                                   style:UIBarButtonItemStylePlain
+                                                                  target:self
+                                                                  action:@selector(hideOrShowTextInputbar:)];
+    
     UIBarButtonItem *editItem = [[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"icn_editing"]
                                                                  style:UIBarButtonItemStylePlain
                                                                 target:self
@@ -178,11 +185,22 @@
                                                                target:self
                                                                action:@selector(togglePIPWindow:)];
     
-    self.navigationItem.rightBarButtonItems = @[pipItem, editItem, appendItem, typeItem];
+    self.navigationItem.rightBarButtonItems = @[arrowItem, pipItem, editItem, appendItem, typeItem];
 }
 
 
 #pragma mark - Action Methods
+
+- (void)hideOrShowTextInputbar:(id)sender
+{
+    BOOL hide = !self.textInputbarHidden;
+    
+    UIImage *image = hide ? [UIImage imageNamed:@"icn_arrow_up"] : [UIImage imageNamed:@"icn_arrow_down"];
+    UIBarButtonItem *buttonItem = (UIBarButtonItem *)sender;
+    
+    [self setTextInputbarHidden:hide animated:YES];
+    [buttonItem setImage:image];
+}
 
 - (void)fillWithText:(id)sender
 {
@@ -221,6 +239,10 @@
 
 - (void)didLongPressCell:(UIGestureRecognizer *)gesture
 {
+    if (gesture.state != UIGestureRecognizerStateBegan) {
+        return;
+    }
+
 #ifdef __IPHONE_8_0
     if (SLK_IS_IOS8_AND_HIGHER && [UIAlertController class]) {
         UIAlertController *alertController = [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];
@@ -354,6 +376,13 @@
 - (void)didChangeKeyboardStatus:(SLKKeyboardStatus)status
 {
     // Notifies the view controller that the keyboard changed status.
+    
+    switch (status) {
+        case SLKKeyboardStatusWillShow:     return NSLog(@"Will Show");
+        case SLKKeyboardStatusDidShow:      return NSLog(@"Did Show");
+        case SLKKeyboardStatusWillHide:     return NSLog(@"Will Hide");
+        case SLKKeyboardStatusDidHide:      return NSLog(@"Did Hide");
+    }
 }
 
 - (void)textWillUpdate
@@ -375,6 +404,12 @@
     // Notifies the view controller when the left button's action has been triggered, manually.
     
     [super didPressLeftButton:sender];
+    
+    UIViewController *vc = [UIViewController new];
+    vc.view.backgroundColor = [UIColor whiteColor];
+    vc.title = @"Details";
+    
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)didPressRightButton:(id)sender
@@ -406,14 +441,13 @@
     [super didPressRightButton:sender];
 }
 
-- (void)didPressArrowKey:(id)sender
+- (void)didPressArrowKey:(UIKeyCommand *)keyCommand
 {
-    [super didPressArrowKey:sender];
-    
-    UIKeyCommand *keyCommand = (UIKeyCommand *)sender;
-    
-    if ([keyCommand.input isEqualToString:UIKeyInputUpArrow]) {
+    if ([keyCommand.input isEqualToString:UIKeyInputUpArrow] && self.textView.text.length == 0) {
         [self editLastMessage:nil];
+    }
+    else {
+        [super didPressArrowKey:keyCommand];
     }
 }
 
@@ -472,6 +506,11 @@
 #endif
 }
 
+- (BOOL)shouldProcessTextForAutoCompletion:(NSString *)text
+{
+    return [super shouldProcessTextForAutoCompletion:text];
+}
+
 - (void)didChangeAutoCompletionPrefix:(NSString *)prefix andWord:(NSString *)word
 {
     NSArray *array = nil;
@@ -492,6 +531,14 @@
     else if (([prefix isEqualToString:@":"] || [prefix isEqualToString:@"+:"]) && word.length > 1) {
         array = [self.emojis filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self BEGINSWITH[c] %@", word]];
     }
+    else if ([prefix isEqualToString:@"/"] && self.foundPrefixRange.location == 0) {
+        if (word.length > 0) {
+            array = [self.commands filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self BEGINSWITH[c] %@", word]];
+        }
+        else {
+            array = self.commands;
+        }
+    }
     
     if (array.count > 0) {
         array = [array sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
@@ -508,6 +555,49 @@
 {
     CGFloat cellHeight = [self.autoCompletionView.delegate tableView:self.autoCompletionView heightForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
     return cellHeight*self.searchResult.count;
+}
+
+
+#pragma mark - SLKTextViewDelegate Methods
+
+- (BOOL)textView:(SLKTextView *)textView shouldOfferFormattingForSymbol:(NSString *)symbol
+{
+    if ([symbol isEqualToString:@">"]) {
+        
+        NSRange selection = textView.selectedRange;
+        
+        // The Quote formatting only applies new paragraphs
+        if (selection.location == 0 && selection.length > 0) {
+            return YES;
+        }
+        
+        // or older paragraphs too
+        NSString *prevString = [textView.text substringWithRange:NSMakeRange(selection.location-1, 1)];
+        
+        if ([[NSCharacterSet newlineCharacterSet] characterIsMember:[prevString characterAtIndex:0]]) {
+            return YES;
+        }
+        
+        return NO;
+    }
+    
+    return [super textView:textView shouldOfferFormattingForSymbol:symbol];
+}
+
+- (BOOL)textView:(SLKTextView *)textView shouldInsertSuffixForFormattingWithSymbol:(NSString *)symbol prefixRange:(NSRange)prefixRange
+{
+    if ([symbol isEqualToString:@">"]) {
+        return NO;
+    }
+    
+    return [super textView:textView shouldInsertSuffixForFormattingWithSymbol:symbol prefixRange:prefixRange];
+}
+
+#pragma mark - UITextViewDelegate Methods
+
+- (BOOL)textView:(SLKTextView *)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString *)text
+{
+    return [super textView:textView shouldChangeTextInRange:range replacementText:text];
 }
 
 
@@ -542,7 +632,7 @@
 {
     MessageTableViewCell *cell = (MessageTableViewCell *)[self.tableView dequeueReusableCellWithIdentifier:MessengerCellIdentifier];
     
-    if (!cell.textLabel.text) {
+    if (cell.gestureRecognizers.count == 0) {
         UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(didLongPressCell:)];
         [cell addGestureRecognizer:longPress];
     }
@@ -652,46 +742,6 @@
     [super scrollViewDidScroll:scrollView];
 }
 
-
-#pragma mark - UITextViewDelegate Methods
-
-- (BOOL)textView:(SLKTextView *)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString *)text
-{
-    return [super textView:textView shouldChangeTextInRange:range replacementText:text];
-}
-
-- (BOOL)textView:(SLKTextView *)textView shouldOfferFormattingForSymbol:(NSString *)symbol
-{
-    if ([symbol isEqualToString:@">"]) {
-        
-        NSRange selection = textView.selectedRange;
-        
-        // The Quote formatting only applies new paragraphs
-        if (selection.location == 0 && selection.length > 0) {
-            return YES;
-        }
-        
-        // or older paragraphs too
-        NSString *prevString = [textView.text substringWithRange:NSMakeRange(selection.location-1, 1)];
-        
-        if ([[NSCharacterSet newlineCharacterSet] characterIsMember:[prevString characterAtIndex:0]]) {
-            return YES;
-        }
-        
-        return NO;
-    }
-    
-    return [super textView:textView shouldOfferFormattingForSymbol:symbol];
-}
-
-- (BOOL)textView:(SLKTextView *)textView shouldInsertSuffixForFormattingWithSymbol:(NSString *)symbol prefixRange:(NSRange)prefixRange
-{
-    if ([symbol isEqualToString:@">"]) {
-        return NO;
-    }
-    
-    return [super textView:textView shouldInsertSuffixForFormattingWithSymbol:symbol prefixRange:prefixRange];
-}
 
 
 #pragma mark - Lifeterm
